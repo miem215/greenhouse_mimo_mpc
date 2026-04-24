@@ -2,6 +2,7 @@ from plant import BasePlant
 from MPCoptimizer import MPCoptimizer
 import numpy as np
 import matplotlib.pyplot as plt
+from Kalman import KalmanFilter
 
 # helper functions
 def get_target_trajectory(t, hz):
@@ -44,16 +45,31 @@ x_trj = []
 u_trj = []
 ref_trj= []
 
+R_kf = np.array([[0.25, 0], 
+                 [0, 1.0]])
+
+# We trust our model quite a bit
+Q_kf = np.array([[0.01, 0], 
+                 [0, 0.01]])
+
 testsystem = BasePlant(init_st, A,B)
+kf_estimator = KalmanFilter(A, B, C=np.eye(2), Q=Q_kf, R=R_kf, initial_state=init_st)
 controller = MPCoptimizer(testsystem, R, Q, hz)
 
-#~~~~~~~~~~~~~~~~~~~~~Solve the optimal input~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~~~~~ Main function ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 for i in range(time_steps):
+    x_true = testsystem.x # the trueth
+    y_sensor = x_true + np.random.normal(0, 0.5, size=x_true.shape) # The noisy measurement
+
+    # Predict based on last u, then Update with noisy y
+    kf_estimator.predict(testsystem.u_prev)
+    x_est = kf_estimator.update(y_sensor)
+
     target = get_target_trajectory(i, hz)
-    delta_u = controller.solve(target) 
-    x = testsystem.update(delta_u)
+    delta_u = controller.solve(x_est,target) 
+    testsystem.update(delta_u)
     
-    x_trj.append(x)
+    x_trj.append(testsystem.x)
     u_trj.append(testsystem.u_prev.flatten()) 
     ref_trj.append(target[0:2].flatten())
 

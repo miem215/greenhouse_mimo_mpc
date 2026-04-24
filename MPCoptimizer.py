@@ -54,9 +54,9 @@ class MPCoptimizer:
                 
         return A_pred, B_pred
 
-    def solve(self, target_stack):
+    def solve(self, x_est, target_stack):
         # Augmented state X_k = [x_k, u_{k-1}]
-        X_k = np.concatenate([self.system.x.flatten(), self.system.u_prev.flatten()]).reshape(-1, 1)
+        X_k = np.concatenate([x_est, self.system.u_prev.flatten()]).reshape(-1, 1)
         
         # Predicted states over horizon
         free_response = self.A_pred @ X_k
