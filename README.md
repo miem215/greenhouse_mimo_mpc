@@ -28,7 +28,9 @@ By penalizing $\Delta u$ in the cost function ($R$ matrix), we prevent aggressiv
 ## Performance Visualization
 The simulation demonstrates the controller's predictive nature. Notice how the actuators begin to adjust *prior* to the setpoint change at step 50, minimizing the error transition.
 
-<img width="1000" height="800" alt="MPC" src="https://github.com/user-attachments/assets/5e4b4436-9cbe-4342-85de-4568032efe6c" />
+<img width="1536" height="754" alt="MPC" src="https://github.com/user-attachments/assets/c69259bf-82cd-4b73-889f-7cae8da5aa95" />
+<img width="1536" height="754" alt="kalman filter" src="https://github.com/user-attachments/assets/4df46bca-5c92-41d8-80bd-6c627e47b971" />
+
 
 ## 🛡️ State Estimation (Kalman Filter)
 
