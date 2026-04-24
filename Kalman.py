@@ -11,8 +11,9 @@ class KalmanFilter:
         self.P = np.eye(len(initial_state)) # Initial uncertainty
 
     def predict(self, u_prev):
-        # x_hat = A*x + B*u
+        # state prediction x_hat = A*x + B*u
         self.x_hat = (self.A @ self.x_hat) + (self.B @ u_prev)
+        # covariance prediction
         self.P = (self.A @ self.P @ self.A.T) + self.Q
 
     def update(self, y_measured):

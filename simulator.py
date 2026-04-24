@@ -2,7 +2,7 @@ from plant import BasePlant
 from MPCoptimizer import MPCoptimizer
 import numpy as np
 import matplotlib.pyplot as plt
-from Kalman import KalmanFilter
+from kalman import KalmanFilter
 
 # helper functions
 def get_target_trajectory(t, hz):
