@@ -1,67 +1,46 @@
-# MIMO Greenhouse Climate Control: Augmented State MPC
+# Greenhouse Climate Control: MIMO MPC with Disturbance Rejection
 
-## Project Overview
-This repository features a **MIMO** Model Predictive Controller (MPC) designed to automate greenhouse climate conditions. The system regulates **Temperature** and **Humidity** by managing two coupled actuators: a heater and a humidifier.
+This repository contains a high-fidelity control system simulation for autonomous greenhouse climate management. It utilizes a **Model Predictive Controller (MPC)** paired with an **Augmented Kalman Filter** to regulate temperature and humidity while rejecting unmeasured external disturbances.
 
-The controller implements an **Incremental Control (Delta-Input) formulation**. By optimizing the *change* in control effort rather than absolute values.
+## Control Theory & Mathematical Framework
 
----
+### 1. System Dynamics (MIMO State-Space)
+The greenhouse is modeled as a discrete-time Linear Time-Invariant (LTI) system:
 
-## Key Features
-* **MIMO State-Space Modeling**: Accurately handles the physical cross-coupling where heating affects humidity.
-* **Augmented State Formulation**: Tracks control history as an internal state, enabling $\Delta u$ optimization.
-* **Constrained Optimization**: Utilizes the **OSQP solver** via `qpsolvers` to respect physical limits (0-100% power) and slew-rate constraints.
-* **Reference Trajectory Preview**: A 10-step look-ahead horizon allows the controller to anticipate scheduled changes (e.g., transitioning from Day to Night cycles).
+$$x(k+1) = Ax(k) + Bu(k) + d(k)$$
+$$y(k) = Cx(k) + v(k)$$
 
----
+Where:
+* $x = [T, H]^T$ (Temperature, Humidity)
+* $u = [P_{heat}, \theta_{vent}]^T$ (Heater Power, Vent Position)
+* $d(k)$ represents unmeasured disturbances (Solar Gain).
+* $v(k)$ is Gaussian measurement noise.
 
-## Mathematical Approach
-The controller uses a discrete-time state-space model augmented to include the previous control input $u_{k-1}$ as a state:
+### 2. Augmented State Observer (Disturbance Estimation)
+To achieve **offset-free tracking**, the state vector was augmented with a disturbance bias $p$:
 
-$$X_{k+1} = \begin{bmatrix} A & B \\ 0 & I \end{bmatrix} X_k + \begin{bmatrix} B \\ I \end{bmatrix} \Delta u_k$$
+$$\begin{bmatrix} T \\ H \\ p \end{bmatrix}_{k+1} = \begin{bmatrix} A & B_d \\ 0 & I \end{bmatrix} \begin{bmatrix} T \\ H \\ p \end{bmatrix}_k + \begin{bmatrix} B \\ 0 \end{bmatrix} u_k$$
 
-By penalizing $\Delta u$ in the cost function ($R$ matrix), we prevent aggressive "chattering" of the equipment.
+This allows the Kalman Filter to estimate the "hidden" solar load, which is then used for **Feed-Forward Compensation** in the MPC.
 
+### 3. MPC Optimization Objective
+The controller solves the following Quadratic Programming (QP) problem at each time step $k$ over a horizon $H$:
 
----
+$$\min_{\Delta u} \sum_{i=1}^{H} \| \hat{x}_{k+i} - r_{k+i} \|_Q^2 + \| \Delta u_{k+i-1} \|_R^2$$
 
-## Performance Visualization
-The simulation demonstrates the controller's predictive nature. Notice how the actuators begin to adjust *prior* to the setpoint change at step 50, minimizing the error transition.
+**Subject to:**
+* System dynamics constraints.
+* **Slew Rate Limits:** $\Delta u_{min} \leq \Delta u \leq \Delta u_{max}$ to ensure actuator longevity.
 
-<img width="1536" height="754" alt="MPC" src="https://github.com/user-attachments/assets/c69259bf-82cd-4b73-889f-7cae8da5aa95" />
-<img width="1536" height="754" alt="kalman filter" src="https://github.com/user-attachments/assets/4df46bca-5c92-41d8-80bd-6c627e47b971" />
+## Technical Performance
 
+### Disturbance Rejection
+By using the estimated bias $p$, we adjust the reference $r_{adj} = r - \hat{p}$. This ensures that even when solar radiation pushes the temperature up, the MPC "aims lower" to land exactly on the target setpoint.
 
-## 🛡️ State Estimation (Kalman Filter)
+## Project Structure
 
-In a real-world greenhouse, sensors are rarely perfect. Environmental interference, electrical noise, and placement variance can cause "jitter" in raw data. A control system that reacts to every small sensor spike would suffer from **actuator chattering**—turning heaters or pumps on and off rapidly—which leads to mechanical fatigue and inefficient energy consumption.
-
-I implemented a **Kalman Filter** to bridge the gap between noisy measurements and the MPC optimizer, ensuring the controller operates on a statistically optimal estimate of the true state.
-
-### 1. The Stochastic Logic
-The filter maintains a running "belief" of the greenhouse state by balancing two competing sources of information:
-1.  **The Physics Model:** A mathematical prediction of how temperature and humidity should behave based on the previous state and known control inputs.
-2.  **The Sensor Data:** Real-time observations that provide the ground truth but contain stochastic noise.
-
-
-### 2. The Recursive Process
-The implementation follows the classic two-step recursive loop:
-
-#### **Step 1: Prediction (A-Priori)**
-The filter uses the state-space matrices ($A, B$) to project the current state and error covariance ($P$) forward in time.
-$$\hat{x}_{k|k-1} = A\hat{x}_{k-1|k-1} + Bu_{k-1}$$
-$$P_{k|k-1} = AP_{k-1|k-1}A^T + Q_{kf}$$
-
-#### **Step 2: Update (A-Posteriori)**
-When a new measurement ($y_k$) arrives, the filter calculates the **Kalman Gain ($K$)**. This gain acts as a weighting factor: if the sensors are noisy, the filter trusts the model more; if the model is uncertain, it trusts the sensors.
-$$K_k = P_{k|k-1}C^T(CP_{k|k-1}C^T + R_{kf})^{-1}$$
-$$\hat{x}_{k|k} = \hat{x}_{k|k-1} + K_k(y_k - C\hat{x}_{k|k-1})$$
-
-
-### 3. Tuning & Robustness
-* **Process Noise ($Q_{kf}$):** Configured to account for model inaccuracies, such as unexpected drafts or unmodeled heat exchange.
-* **Measurement Noise ($R_{kf}$):** Set based on the variance of the physical sensors used in the simulation.
-
-By integrating this estimator, the MPC receives a **smooth state trajectory**, resulting in stable control actions and robust performance even in the presence of significant measurement uncertainty.
-
+* **`plant.py`**: Physics engine with disturbance injection.
+* **`kalman.py`**: 3-state Augmented Kalman Filter implementation.
+* **`MPCoptimizer.py`**: Receding horizon controller using `qpsolvers`.
+* **`simulator.py`**: Main execution loop and visualization.
 ---
