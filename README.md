@@ -1,6 +1,6 @@
 # Greenhouse Climate Control: MIMO MPC with Disturbance Rejection
 
-This repository contains a high-fidelity control system simulation for autonomous greenhouse climate management. It utilizes a **Model Predictive Controller (MPC)** paired with an **Augmented Kalman Filter** to regulate temperature and humidity while rejecting unmeasured external disturbances.
+This repository contains a control system simulation for autonomous greenhouse climate management. It utilizes a **Model Predictive Controller (MPC)** paired with an **Augmented Kalman Filter** to regulate temperature and humidity while rejecting unmeasured external disturbances. The system is modeled as a 2x2 LTI system, in reality the dynamic system is far mode complecated. The purpose of this project is to demonstrate the implmentation of Kalman filter and MPC.
 
 ## Control Theory & Mathematical Framework
 
