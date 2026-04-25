@@ -8,8 +8,8 @@ class BasePlant:
         self.u_prev = np.zeros((B.shape[1], 1)) 
 
     def update(self, delt_u, solar_gain):
-        # Update absolute power: u(k) = u(k-1) + delta_u
-        self.u_prev = self.u_prev + delt_u.reshape(-1, 1)
+        # Update absolute power: u(k) = u(k-1) + delta_u, clamped to [0, 100]
+        self.u_prev = np.clip(self.u_prev + delt_u.reshape(-1, 1), 0.0, 100.0)
         
         # Compute physics: x(k+1) = Ax(k) + Bu(k) + solar disturbance
         disturbance = np.array([[solar_gain], [0.0]])

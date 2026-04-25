@@ -28,19 +28,21 @@ def calculate_rmse(true_val, test_val):
     return np.sqrt(np.mean((true_val - test_val)**2))
 
 #~~~~~~~~~~~~~~~~~~Initialize the system ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-A = np.array([[0.95, 0.01], 
-              [0.0,  0.9]])
-B = np.array([[0.5, -0.01], 
-              [-0.02, 0.5]])
+# A: τ_T ≈ 5.5 min (0.97), τ_H ≈ 3.25 min (0.95), includes T→H coupling (-0.02)
+A = np.array([[0.97,  0.01],
+              [-0.02, 0.95]])
+# B: diagonal scaled to preserve DC gain ((I-A)^-1 B ≈ original); cross terms kept small
+B = np.array([[0.30, -0.01],
+              [-0.01,  0.25]])
 
 init_st = np.array([15,40])
 
-Q = np.array([[2000, 0], 
-              [0,  1800]])
-R = np.array([[1, 0],[0,1]])
+Q = np.array([[40, 0],
+              [0,  18]])
+R = np.array([[0.05, 0],[0, 0.03]])
 
-hz = 10
-time_steps = 100
+hz = 25
+time_steps = 150
 #target = np.array([[21], [50]]) 
 
 x_est_trj = []
@@ -60,7 +62,7 @@ R_kf = np.array([[1.5, 0],
 
 testsystem = BasePlant(init_st, A,B)
 
-controller = MPCoptimizer(testsystem, R, Q, hz)
+controller = MPCoptimizer(testsystem, R, Q, hz, u_min=[0, 0], u_max=[100, 100])
 std_devs = np.array([0.5, 1.0])
 
 C=np.eye(2)
@@ -68,8 +70,8 @@ init_st_kf = np.append(init_st, 0.0)
 A_obs = np.block([[A, np.array([[1.0], [0.0]])], [0, 0, 1]])
 B_obs = np.vstack([B, np.zeros((1, B.shape[1]))])
 C_obs = np.column_stack([C, np.zeros((C.shape[0], 1))])
-Q_obs = np.block([[Q_kf, np.zeros((2, 1))], 
-                  [np.zeros((1, 2)), 0.01]]) 
+Q_obs = np.block([[Q_kf, np.zeros((2, 1))],
+                  [np.zeros((1, 2)), 0.01]])
 kf_estimator = KalmanFilter(A_obs, B_obs, C_obs, Q=Q_obs, R=R_kf, initial_state=init_st_kf)
 
 #~~~~~~~~~~~~~~~~~~~~~ Main function ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -79,7 +81,7 @@ for i in range(time_steps):
     x_true = testsystem.x # the trueth
     noise = np.random.normal(0, std_devs).reshape(-1,1)
     y_sensor = x_true.reshape(-1,1) + noise # The noisy measurement
-    solar_impact = 1* np.sin(np.pi * i / time_steps)
+    solar_impact = 0.1 * np.sin(np.pi * i / time_steps)
 
     # Kalman, Predict based on last u then Update the estimation with noisy y
     kf_estimator.predict(testsystem.u_prev)
@@ -89,7 +91,7 @@ for i in range(time_steps):
 
     # feed the estimation to MPC and compute the optimal control input
     target_adj = target.copy().astype(float)
-    target_adj[::2] -= sun_est
+    target_adj[::2] -= sun_est / (1 - A[0, 0])  # convert per-step gain to steady-state effect
     delta_u = controller.solve(x_est,target_adj) 
     testsystem.update(delta_u, solar_impact)
     
@@ -137,6 +139,7 @@ plt.legend(loc='upper right')
 plt.grid(True, alpha=0.2)
 
 plt.tight_layout()
+plt.savefig("figures/fig1_kalman.png", dpi=150, bbox_inches='tight')
 
 # FIGURE 2: MPC PERFORMANCE
 plt.figure(2)
@@ -162,4 +165,5 @@ ax_u.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 ax_u.grid(True, alpha=0.2)
 
 plt.tight_layout()
+plt.savefig("figures/fig2_mpc.png", dpi=150, bbox_inches='tight')
 plt.show()

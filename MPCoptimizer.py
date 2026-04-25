@@ -2,12 +2,14 @@ import numpy as np
 from qpsolvers import solve_qp
 
 class MPCoptimizer:
-    def __init__(self, system, R, Q, hz):
+    def __init__(self, system, R, Q, hz, u_min=None, u_max=None):
         self.system = system
         self.A = system.A # Physical A (2x2)
         self.B = system.B # Physical B (2x2)
         self.hz = hz
         self.n, self.m = self.B.shape
+        self.u_min = np.zeros(self.m) if u_min is None else np.array(u_min, dtype=float)
+        self.u_max = np.full(self.m, 100.0) if u_max is None else np.array(u_max, dtype=float)
         
         # Create Augmented Matrices (4x4 and 4x2)
         # A_aug_system: [[A, B], [0, I]]
@@ -67,9 +69,13 @@ class MPCoptimizer:
         CB = self.C_total @ self.B_pred
         f = 2 * CB.T @ self.Q_large @ error_vector
 
-        # Bounds on delta_u 
-        lb = np.ones(self.hz * self.m) * -2.0
-        ub = np.ones(self.hz * self.m) * 2.0
+        # Slew rate bounds on delta_u; absolute limits are enforced by the plant clamp
+        u0 = self.system.u_prev.flatten()
+        lb = np.maximum(-2.0, np.tile(self.u_min - u0, self.hz))
+        ub = np.minimum( 2.0, np.tile(self.u_max - u0, self.hz))
 
-        delta_u_opt = solve_qp(self.H, f, lb=lb, ub=ub, solver="osqp")
+        delta_u_opt = solve_qp(self.H, f, lb=lb, ub=ub, solver="osqp",
+                               polish=True, eps_abs=1e-7, eps_rel=1e-7)
+        if delta_u_opt is None:
+            delta_u_opt = np.zeros(self.hz * self.m)
         return delta_u_opt[0:self.m]
