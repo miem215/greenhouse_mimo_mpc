@@ -27,20 +27,7 @@ def get_target_trajectory(t, hz):
 def calculate_rmse(true_val, test_val):
     return np.sqrt(np.mean((true_val - test_val)**2))
 
-#~~~~~~~~~~~~~~~~~~Initialize the system ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# A: τ_T ≈ 5.5 min (0.97), τ_H ≈ 3.25 min (0.95), includes T→H coupling (-0.02)
-A = np.array([[0.97,  0.01],
-              [-0.02, 0.95]])
-# B: diagonal scaled to preserve DC gain ((I-A)^-1 B ≈ original); cross terms kept small
-B = np.array([[0.30, -0.01],
-              [-0.01,  0.25]])
-
-init_st = np.array([15,40])
-
-Q = np.array([[40, 0],
-              [0,  18]])
-R = np.array([[0.05, 0],[0, 0.03]])
-
+#~~~~~~~~~~~~~~~~~~Initialization~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 hz = 25
 time_steps = 150
 #target = np.array([[21], [50]]) 
@@ -50,8 +37,29 @@ u_trj = []
 ref_trj= []
 y_measurement = []
 x_true_trj = []
+solar_trj = []
+
+# initialize the plant model
+# A: τ_T ≈ 5.5 min (0.97), τ_H ≈ 3.25 min (0.95), includes T→H coupling (-0.02)
+A = np.array([[0.97,  0.01],
+              [-0.02, 0.95]])
+# B: diagonal scaled to preserve DC gain ((I-A)^-1 B ≈ original); cross terms kept small
+B = np.array([[0.30, -0.01],
+              [-0.01,  0.25]])
+
+init_st = np.array([15,40])
+testsystem = BasePlant(init_st, A,B)
+
+# initialize the MPC 
+Q = np.array([[40, 0],
+              [0,  18]])
+R = np.array([[0.05, 0],[0, 0.03]])
+controller = MPCoptimizer(testsystem, R, Q, hz, u_min=[0, 0], u_max=[100, 100])
 
 
+std_devs = np.array([0.5, 1.0]) # std deviation of noise added to measurement
+
+# initialize Kalman filter
 # process nopise, uncertainty in the model
 Q_kf = np.array([[0.0025, 0], 
                  [0, 0.01]])
@@ -59,11 +67,6 @@ Q_kf = np.array([[0.0025, 0],
 # measurement noise
 R_kf = np.array([[1.5, 0], 
                  [0, 1]])
-
-testsystem = BasePlant(init_st, A,B)
-
-controller = MPCoptimizer(testsystem, R, Q, hz, u_min=[0, 0], u_max=[100, 100])
-std_devs = np.array([0.5, 1.0])
 
 C=np.eye(2)
 init_st_kf = np.append(init_st, 0.0)
@@ -84,10 +87,9 @@ for i in range(time_steps):
     solar_impact = 0.1 * np.sin(np.pi * i / time_steps)
 
     # Kalman, Predict based on last u then Update the estimation with noisy y
-    kf_estimator.predict(testsystem.u_prev)
     x_hat_full = kf_estimator.update(y_sensor)
     x_est = x_hat_full[:2]   # [T, H] for the MPC
-    sun_est = x_hat_full[2]  # The estimated solar gain!
+    sun_est = x_hat_full[2]  # The estimated solar gain
 
     # feed the estimation to MPC and compute the optimal control input
     target_adj = target.copy().astype(float)
@@ -95,17 +97,21 @@ for i in range(time_steps):
     delta_u = controller.solve(x_est,target_adj) 
     testsystem.update(delta_u, solar_impact)
     
+    kf_estimator.predict(testsystem.u_prev)
+    
     x_true_trj.append(x_true.flatten())
     x_est_trj.append(x_est)
     u_trj.append(testsystem.u_prev.flatten()) 
     ref_trj.append(target[0:2].flatten())
     y_measurement.append(y_sensor)
+    solar_trj.append(solar_impact)
 
 x_est_trajectory = np.array(x_est_trj)
 x_true_trajectory = np.array(x_true_trj)
 u_trajectory = np.array(u_trj)
 ref_trajectory = np.array(ref_trj)
 y_ns_measurement = np.array(y_measurement)
+solar_record = np.array(solar_trj)
 
 # calculate the RMS error
 rmse_noisy_temp = calculate_rmse(x_true_trajectory[:, 0], y_ns_measurement[:, 0])
