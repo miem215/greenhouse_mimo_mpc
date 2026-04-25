@@ -49,12 +49,14 @@ ref_trj= []
 y_measurement = []
 x_true_trj = []
 
-R_kf = np.array([[0.25, 0], 
-                 [0, 1]])
 
-# We trust our model quite a bit
+# process nopise, uncertainty in the model
 Q_kf = np.array([[0.0025, 0], 
                  [0, 0.01]])
+
+# measurement noise
+R_kf = np.array([[0.25, 0], 
+                 [0, 1]])
 
 testsystem = BasePlant(init_st, A,B)
 kf_estimator = KalmanFilter(A, B, C=np.eye(2), Q=Q_kf, R=R_kf, initial_state=init_st)
@@ -63,10 +65,12 @@ std_devs = np.array([0.5, 1.0])
 
 #~~~~~~~~~~~~~~~~~~~~~ Main function ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 for i in range(time_steps):
+
     target = get_target_trajectory(i, hz)
     x_true = testsystem.x # the trueth
     noise = np.random.normal(0, std_devs).reshape(-1,1)
     y_sensor = x_true.reshape(-1,1) + noise # The noisy measurement
+    solar_impact = 0* np.sin(np.pi * i / time_steps)
 
     # Kalman, Predict based on last u then Update the estimation with noisy y
     kf_estimator.predict(testsystem.u_prev)
@@ -74,7 +78,7 @@ for i in range(time_steps):
 
     # feed the estimation to MPC 
     delta_u = controller.solve(x_est,target) 
-    testsystem.update(delta_u)
+    testsystem.update(delta_u, solar_impact)
     
     x_true_trj.append(x_true.flatten())
     x_est_trj.append(x_est)
