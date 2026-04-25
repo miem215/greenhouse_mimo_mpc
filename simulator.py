@@ -38,6 +38,7 @@ ref_trj= []
 y_measurement = []
 x_true_trj = []
 solar_trj = []
+sun_est_trj = []
 
 # initialize the plant model
 # A: τ_T ≈ 5.5 min (0.97), τ_H ≈ 3.25 min (0.95), includes T→H coupling (-0.02)
@@ -96,7 +97,7 @@ for i in range(time_steps):
     target_adj[::2] -= sun_est / (1 - A[0, 0])  # convert per-step gain to steady-state effect
     delta_u = controller.solve(x_est,target_adj) 
     testsystem.update(delta_u, solar_impact)
-    
+
     kf_estimator.predict(testsystem.u_prev)
     
     x_true_trj.append(x_true.flatten())
@@ -105,6 +106,7 @@ for i in range(time_steps):
     ref_trj.append(target[0:2].flatten())
     y_measurement.append(y_sensor)
     solar_trj.append(solar_impact)
+    sun_est_trj.append(sun_est)
 
 x_est_trajectory = np.array(x_est_trj)
 x_true_trajectory = np.array(x_true_trj)
@@ -112,6 +114,7 @@ u_trajectory = np.array(u_trj)
 ref_trajectory = np.array(ref_trj)
 y_ns_measurement = np.array(y_measurement)
 solar_record = np.array(solar_trj)
+sun_est_record = np.array(sun_est_trj)
 
 # calculate the RMS error
 rmse_noisy_temp = calculate_rmse(x_true_trajectory[:, 0], y_ns_measurement[:, 0])
