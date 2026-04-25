@@ -35,9 +35,9 @@ B = np.array([[0.5, -0.01],
 
 init_st = np.array([15,40])
 
-Q = np.array([[200, 0], 
-              [0,  400]])
-R = np.array([[50, 0],[0,100]])
+Q = np.array([[2000, 0], 
+              [0,  1800]])
+R = np.array([[1, 0],[0,1]])
 
 hz = 10
 time_steps = 100
@@ -55,13 +55,22 @@ Q_kf = np.array([[0.0025, 0],
                  [0, 0.01]])
 
 # measurement noise
-R_kf = np.array([[0.25, 0], 
+R_kf = np.array([[1.5, 0], 
                  [0, 1]])
 
 testsystem = BasePlant(init_st, A,B)
-kf_estimator = KalmanFilter(A, B, C=np.eye(2), Q=Q_kf, R=R_kf, initial_state=init_st)
+
 controller = MPCoptimizer(testsystem, R, Q, hz)
 std_devs = np.array([0.5, 1.0])
+
+C=np.eye(2)
+init_st_kf = np.append(init_st, 0.0)
+A_obs = np.block([[A, np.array([[1.0], [0.0]])], [0, 0, 1]])
+B_obs = np.vstack([B, np.zeros((1, B.shape[1]))])
+C_obs = np.column_stack([C, np.zeros((C.shape[0], 1))])
+Q_obs = np.block([[Q_kf, np.zeros((2, 1))], 
+                  [np.zeros((1, 2)), 0.01]]) 
+kf_estimator = KalmanFilter(A_obs, B_obs, C_obs, Q=Q_obs, R=R_kf, initial_state=init_st_kf)
 
 #~~~~~~~~~~~~~~~~~~~~~ Main function ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 for i in range(time_steps):
@@ -70,14 +79,18 @@ for i in range(time_steps):
     x_true = testsystem.x # the trueth
     noise = np.random.normal(0, std_devs).reshape(-1,1)
     y_sensor = x_true.reshape(-1,1) + noise # The noisy measurement
-    solar_impact = 0* np.sin(np.pi * i / time_steps)
+    solar_impact = 1* np.sin(np.pi * i / time_steps)
 
     # Kalman, Predict based on last u then Update the estimation with noisy y
     kf_estimator.predict(testsystem.u_prev)
-    x_est = kf_estimator.update(y_sensor)
+    x_hat_full = kf_estimator.update(y_sensor)
+    x_est = x_hat_full[:2]   # [T, H] for the MPC
+    sun_est = x_hat_full[2]  # The estimated solar gain!
 
-    # feed the estimation to MPC 
-    delta_u = controller.solve(x_est,target) 
+    # feed the estimation to MPC and compute the optimal control input
+    target_adj = target.copy().astype(float)
+    target_adj[::2] -= sun_est
+    delta_u = controller.solve(x_est,target_adj) 
     testsystem.update(delta_u, solar_impact)
     
     x_true_trj.append(x_true.flatten())

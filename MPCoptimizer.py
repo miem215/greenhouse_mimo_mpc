@@ -67,9 +67,9 @@ class MPCoptimizer:
         CB = self.C_total @ self.B_pred
         f = 2 * CB.T @ self.Q_large @ error_vector
 
-        # Bounds on delta_u (e.g., -5% to +5% change per step)
-        lb = np.ones(self.hz * self.m) * -5.0
-        ub = np.ones(self.hz * self.m) * 5.0
+        # Bounds on delta_u 
+        lb = np.ones(self.hz * self.m) * -2.0
+        ub = np.ones(self.hz * self.m) * 2.0
 
         delta_u_opt = solve_qp(self.H, f, lb=lb, ub=ub, solver="osqp")
         return delta_u_opt[0:self.m]
