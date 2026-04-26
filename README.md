@@ -21,27 +21,43 @@ To achieve **offset-free tracking** in the presence of unmeasured force, in this
 
 We extend the standard state-space model to include a third state, $p$, representing the persistent solar disturbance. We model the disturbance as a random walk ($p_{k+1} = p_k$), allowing the filter to track time-varying signals via the innovation loop.
 
-$$\underbrace{\begin{bmatrix} T_{k+1} \\ H_{k+1} \\ p_{k+1} \end{bmatrix}}_{\hat{x}_{k+1}} = 
-\begin{bmatrix} A & \begin{matrix} 1 \\ 0 \end{matrix} \\ 0 \ \ 0 & 1 \end{bmatrix} 
-\begin{bmatrix} T_k \\ H_k \\ p_k \end{bmatrix} + 
-\begin{bmatrix} B \\ 0 \end{bmatrix} u_k + w_k$$
+$$
+\underbrace{
+\begin{bmatrix} 
+T_{k+1} \\ 
+H_{k+1} \\ 
+p_{k+1} 
+\end{bmatrix}}_{\hat{x}_{k+1}} = 
+\begin{bmatrix} 
+A & \begin{matrix} 1 \\ 0 \end{matrix} \\ 
+0 \ \ 0 & 1 
+\end{bmatrix} 
+\begin{bmatrix} 
+T_k \\ 
+H_k \\ 
+p_k 
+\end{bmatrix} + 
+\begin{bmatrix} 
+B \\ 
+0 
+\end{bmatrix} u_k + w_k
+$$
 
-This allows the Kalman Filter to estimate the "hidden" solar load, which is then used for **Feed-Forward Compensation** in the MPC. Figure below shows the modeled solar temprature disturbance and the estimated disturbance. 
+This allows the Kalman Filter to estimate the "hidden" solar load, which is then used for **Feed-Forward Compensation** in the MPC. Figures below shows the Kalman filter performance for estimating the states and the estimated disturbance.
+<img width="924" height="701" alt="fig1_kalman" src="https://github.com/user-attachments/assets/7ef05219-b4f5-435c-8b9d-057c89dee3b1" />
+
 <img width="640" height="480" alt="sun_estimate" src="https://github.com/user-attachments/assets/5da09e85-65f0-49ae-9ca7-da15238c6874" />
 
 ### 3. MPC Optimization Objective
-The controller solves the following Quadratic Programming (QP) problem at each time step $k$ over a horizon $H$:
+By augmenting the Kalman Filter to estimate the solar disturbance ($\hat{p}_k$), we can determine the steady-state impact of the environmental load using the system's DC gain. Adjusting the reference trajectory in this manner ensures offset-free tracking, effectively canceling the disturbance before it can deviate the climate from the biological setpoint. The adjuested trajectory is expressed as:
 
-$$\min_{\Delta u} \sum_{i=1}^{H} \| \hat{x}_{k+i} - r_{k+i} \|_Q^2 + \| \Delta u_{k+i-1} \|_R^2$$
+$$T_{target, adj} = T_{target} - \frac{\hat{p}_k}{1 - A_{1,1}}$$
 
-**Subject to:**
-* System dynamics constraints.
-* **Slew Rate Limits:** $\Delta u_{min} \leq \Delta u \leq \Delta u_{max}$ to ensure actuator longevity.
+The controller solves the following Quadratic Programming (QP) problem at each time step $k$ over a horizon $H$
 
-## Technical Performance
+$$\min_{\Delta u} \sum_{i=1}^{H} \| \hat{x}_{k+i} - T_{target, adj}^{k+i} \|_Q^2 + \| \Delta u_{k+i-1} \|_R^2 $$
 
-### Disturbance Rejection
-By using the estimated bias $p$, we adjust the reference $r_{adj} = r - \hat{p}$. This ensures that even when solar radiation pushes the temperature up, the MPC "aims lower" to land exactly on the target setpoint.
+We solve for $$\Delta u$$, change of the control input, subject to **Slew Rate Limits:** $\Delta u_{min} \leq \Delta u \leq \Delta u_{max}$ to ensure smooth control actions.
 
 ## Project Structure
 
