@@ -52,6 +52,18 @@ Figures below shows the Kalman filter performance for estimating the states and 
 
 <img width="640" height="480" alt="sun_estimate" src="https://github.com/user-attachments/assets/5da09e85-65f0-49ae-9ca7-da15238c6874" />
 
+The uncertainty matrices were chosen as follows. Overal the process noise are much less than the sensor noise, because there are 'iniertia' for the temperature and humidity, these states will not deviete a lot from the physics model. The disturbance gain $$Q_{22}$$ is relatively large, telling kalman filter that the disturbance can move quite fast. In my current simulation, the solar disturbance is modeled as a smooth sine wave. Mathematically, I could achieve a much smoother estimate by reducing $Q_{22}$ to match that slow frequency. However, I deliberately chose a larger $Q_{22}$ to ensure the filter remains responsive to edge cases
+
+process noise 
+Q_kf = np.array([[0.0025, 0, 0], 
+                 [0, 0.01, 0],
+                 [0, 0, 0.01]])
+
+measurement noise
+R_kf = np.array([[1.5, 0], 
+                 [0, 1]])
+                 
+
 ### 3. MPC Optimization Objective
 By augmenting the Kalman Filter to estimate the solar disturbance ($\hat{p}_k$), we can determine the steady-state impact of the environmental load using the system's DC gain. Adjusting the reference trajectory in this manner ensures offset-free tracking, effectively canceling the disturbance before it can deviate the climate from the biological setpoint. The adjuested trajectory is expressed as:
 
