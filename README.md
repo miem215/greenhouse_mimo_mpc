@@ -1,6 +1,8 @@
 # Greenhouse Climate Control: MIMO MPC with Disturbance Rejection
 
-This repository contains a control system simulation for autonomous greenhouse climate management. It utilizes a **Model Predictive Controller (MPC)** paired with an **Augmented Kalman Filter** to regulate temperature and humidity while rejecting unmeasured external disturbances. The system is modeled as a 2x2 LTI system, in reality the greenhouse dynamic system is far mode complecated. The purpose of this project is not to showcase a precise modeling of greenhouse, rather it is to demonstrate the implmentation Observer-Based MPC and Disturbance Rejection.
+This repository contains a control system simulation for autonomous greenhouse climate management. It utilizes a **Model Predictive Controller (MPC)** paired with an **Augmented Kalman Filter** to regulate temperature and humidity while rejecting unmeasured external disturbances. 
+
+The system is modeled as a 2x2 LTI system, in reality the greenhouse dynamic system is far mode complecated. The purpose of this project is not to showcase a precise modeling of greenhouse, rather it is to demonstrate the implmentation Observer-Based MPC and Disturbance Rejection.
 ## Project Structure
 
 * **`plant.py`**: Physics engine with disturbance injection.
@@ -23,7 +25,7 @@ Where:
 * $v(k)$ is Gaussian measurement noise.
 
 ### 2. Augmented Kalman filter (Disturbance Estimation)
-To achieve **offset-free tracking** in the presence of unmeasured force, in this case solar effect, the state vector was augmented with a disturbance bias $p$. We model the disturbance as a random walk ($p_{k+1} = p_k$). This augmented state-space model allows the Kalman Filter to estimate the "hidden" solar load, which is then used for Feed-Forward Compensation in the MPC.
+solar effect was chosen as injected disturbance to the system. The state vector was augmented with a disturbance bias $p$. We model the disturbance as a random walk ($p_{k+1} = p_k$). This augmented state-space model allows the Kalman Filter to estimate the "hidden" solar load, which is then used for Feed-Forward Compensation in the MPC.
 
 $$
 \underbrace{
@@ -52,16 +54,28 @@ Figures below shows the Kalman filter performance for estimating the states and 
 
 <img width="640" height="480" alt="sun_estimate" src="https://github.com/user-attachments/assets/5da09e85-65f0-49ae-9ca7-da15238c6874" />
 
-The uncertainty matrices were chosen as follows. Overal the process noise are much less than the sensor noise, because there are 'iniertia' for the temperature and humidity, these states will not deviete a lot from the physics model. The disturbance gain $$Q_{22}$$ is relatively large, telling kalman filter that the disturbance can move quite fast. In my current simulation, the solar disturbance is modeled as a smooth sine wave. Mathematically, I could achieve a much smoother estimate by reducing $Q_{22}$ to match that slow frequency. However, I deliberately chose a larger $Q_{22}$ to ensure the filter remains responsive to edge cases
+Tunning strategy: In this simulation, the process noise (Q) is significantly lower than the measurement noise (R). This reflects the high thermal "inertia" of a greenhouse; temperature and humidity follow predictable physical laws and do not deviate instantaneously from the model. By trusting the physics over noisy sensor data, we achieve a more stable state estimate.
 
-process noise 
-Q_kf = np.array([[0.0025, 0, 0], 
-                 [0, 0.01, 0],
-                 [0, 0, 0.01]])
+Currently, solar radiation is modeled as a smooth sine wave. While a smaller $Q_{22}$ would produce a smoother estimate matching the sine wave's frequency, I deliberately chose a larger $Q_{22}$.
+This ensures the filter remains agile. In a real-world greenhouse, disturbances (like rapid cloud cover) are often sudden. This tuning allows the Kalman Filter to track these "fast" changes rather than lagging behind a strictly smoothed estimate.
 
-measurement noise
-R_kf = np.array([[1.5, 0], 
-                 [0, 1]])
+process noise: this matrix represents the uncertainty in the physical greenhouse mode (e.g., unmodeled thermal leaks or transpiration fluctuations)
+
+$$
+Q = \begin{bmatrix}
+0.0025 & 0 & 0 \\
+0 & 0.01 & 0 \\
+0 & 0 & 0.01 
+\end{bmatrix}
+$$
+
+measurement noise: this matrix defines the confidence in the sensor hardware (Temperature and Humidity sensors).
+
+$$
+R = \begin{bmatrix} 
+1.5 & 0 \\
+0 & 1 
+\end{bmatrix}$$
                  
 
 ### 3. MPC Optimization Objective
