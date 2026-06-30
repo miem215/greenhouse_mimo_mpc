@@ -1,105 +1,108 @@
-# Greenhouse Climate Control: MIMO MPC with Disturbance Rejection
+# Greenhouse Climate and Irrigation Management
+This repository contains a control system simulation for autonomous greenhouse climate and irrigation management. It utilizes a Model Predictive Controller (MPC) paired with a Kalman Filter to regulate temperature, humidity, and multi-layer soil moisture.
 
-This repository contains a control system simulation for autonomous greenhouse climate management. It utilizes a **Model Predictive Controller (MPC)** paired with an **Augmented Kalman Filter** to regulate temperature and humidity while rejecting unmeasured external disturbances. 
+The base system is modeled as a 4x2 Linear Time-Invariant (LTI) system. To realistically simulate physical phenomena—such as water traveling through irrigation pipes and percolating through soil layers—the state-space is mathematically augmented to 7 dimensions using shift registers.
 
-The system is modeled as a 2x2 LTI system, in reality the greenhouse dynamic system is far mode complecated. The purpose of this project is not to showcase a precise modeling of greenhouse, rather it is to demonstrate the implmentation Observer-Based MPC and Disturbance Rejection.
 ## Project Structure
 
-* **`plant.py`**: Physics engine with disturbance injection.
-* **`kalman.py`**: 3-state Augmented Kalman Filter implementation.
-* **`MPCoptimizer.py`**: Receding horizon controller using `qpsolvers`.
-* **`simulator.py`**: Main execution loop and visualization.
+plant.py: Physics engine simulating the greenhouse environment and disturbances.
+
+augment_delay.py: Matrix augmentation logic to convert physical delays into state-space shift registers.
+
+extract_matrices.py: Matrix definitions and generation of the final 7x7 system.
+
+kalman.py: 7-state Kalman Filter for observing physical and hidden delay states.
+
+MPCoptimizer.py: Receding horizon optimal controller using Quadratic Programming (osqp).
+
+simulator.py: Main execution loop and visualization.
 
 ## Control Theory & Mathematical Framework
 
-### 1. System Dynamics (MIMO State-Space)
-The greenhouse is modeled as a discrete-time Linear Time-Invariant (LTI) system:
+1. System Dynamics (MIMO State-Space with Delays)
 
-$$x(k+1) = Ax(k) + Bu(k) + d(k)$$
-$$y(k) = Cx(k) + v(k)$$
+The base physical greenhouse is modeled with 4 states and 2 inputs:
 
-Where:
-* $x = [T, H]^T$ (Temperature, Humidity)
-* $u = [P_{heat}, \theta_{vent}]^T$ (Heater Power, Vent Position)
-* $d(k)$ represents unmeasured disturbances (Solar Gain).
-* $v(k)$ is Gaussian measurement noise.
+States ($x_{phys}$): $[T, H, M_{surf}, M_{deep}]^T$ (Temperature, Humidity, Surface Moisture, Deep Moisture)
 
-### 2. Augmented Kalman filter (Disturbance Estimation)
-solar effect was chosen as injected disturbance to the system. The state vector was augmented with a disturbance bias $p$. We model the disturbance as a random walk ($p_{k+1} = p_k$). This augmented state-space model allows the Kalman Filter to estimate the "hidden" solar load, which is then used for Feed-Forward Compensation in the MPC.
+Inputs ($u$): $[P_{heat}, P_{pump}]^T$ (Heater Power, Water Pump)
 
-$$
-\underbrace{
-\begin{bmatrix} 
-T_{k+1} \\ 
-H_{k+1} \\ 
-p_{k+1} 
-\end{bmatrix}}_{\hat{x}_{k+1}} = 
-\begin{bmatrix} 
-A & \begin{matrix} 1 \\ 0 \end{matrix} \\ 
-0 \ \ 0 & 1 
-\end{bmatrix} 
-\begin{bmatrix} 
-T_k \\ 
-H_k \\ 
-p_k 
-\end{bmatrix} + 
-\begin{bmatrix} 
-B \\ 
-0 
-\end{bmatrix} u_k + w_k
-$$
+Modeling Delays via State Augmentation:
+In reality, actuators do not affect the environment instantly. To model a 2-step delay for the water pump and a 1-step percolation delay between the surface and deep soil, the state vector is expanded to include 3 hidden "memory" states ($x_{aug} \in \mathbb{R}^7$).
 
-Figures below shows the Kalman filter performance for estimating the states and the estimated disturbance respectively.
-<img width="924" height="701" alt="fig1_kalman" src="https://github.com/user-attachments/assets/7ef05219-b4f5-435c-8b9d-057c89dee3b1" />
+$$x(k+1) = A_{final}x(k) + B_{final}u(k) + d(k)$$
 
-<img width="640" height="480" alt="sun_estimate" src="https://github.com/user-attachments/assets/5da09e85-65f0-49ae-9ca7-da15238c6874" />
+$$y(k) = C_{final}x(k) + v(k)$$
 
-Tunning strategy: In this simulation, the process noise (Q) is significantly lower than the measurement noise (R). This reflects the high thermal "inertia" of a greenhouse; temperature and humidity follow predictable physical laws and do not deviate instantaneously from the model. By trusting the physics over noisy sensor data, we achieve a more stable state estimate.
+The hidden states mathematically act as a shift register, holding control actions and draining water in transition before applying them to the physical states.
 
-Currently, solar radiation is modeled as a smooth sine wave. While a smaller $Q_{22}$ would produce a smoother estimate matching the sine wave's frequency, I deliberately chose a larger $Q_{22}$.
-This ensures the filter remains agile. In a real-world greenhouse, disturbances (like rapid cloud cover) are often sudden. This tuning allows the Kalman Filter to track these "fast" changes rather than lagging behind a strictly smoothed estimate.
+2. Kalman Filter (State & Delay Estimation)
 
-process noise: this matrix represents the uncertainty in the physical greenhouse mode (e.g., unmodeled thermal leaks or transpiration fluctuations)
+The Kalman Filter is designed to track all 7 states. Even though we only have sensors for the 4 physical states ($C_{final}$ is a $4 \times 7$ matrix), the filter mathematically reconstructs the unmeasured water currently "in transit" through the pipes and soil layers.
 
-$$
-Q = \begin{bmatrix}
-0.0025 & 0 & 0 \\
-0 & 0.01 & 0 \\
-0 & 0 & 0.01 
-\end{bmatrix}
-$$
+$$\hat{x}_{k|k} = \hat{x}_{k|k-1} + K (y_k - C_{final} \hat{x}_{k|k-1})$$
 
-measurement noise: this matrix defines the confidence in the sensor hardware (Temperature and Humidity sensors).
+Tuning Strategy: The process noise ($Q$) is tuned relatively low, reflecting the high physical "inertia" of the greenhouse (temperature and soil moisture change slowly). By trusting the $A_{final}$ physics matrix over the noisy sensor data ($R$), we achieve a highly stable state estimate, which is crucial for the MPC's long-term predictions.
 
-$$
-R = \begin{bmatrix} 
-1.5 & 0 \\
-0 & 1 
-\end{bmatrix}$$
-                 
+3. MPC Optimization Objective
 
-### 3. MPC Optimization Objective
-By augmenting the Kalman Filter to estimate the solar disturbance ($\hat{p}_k$), we can determine the steady-state impact of the environmental load using the system's DC gain. Adjusting the reference trajectory in this manner ensures offset-free tracking, effectively canceling the disturbance before it can deviate the climate from the biological setpoint. The adjuested trajectory is expressed as:
+The controller solves a Quadratic Programming (QP) problem at each time step $k$ over a prediction horizon $H$. It minimizes the tracking error across all physical states while penalizing excessive actuator effort.
 
-$$T_{target, adj} = T_{target} - \frac{\hat{p}_k}{1 - A_{1,1}}$$
+$$\min_{u} \sum_{i=1}^{H} \left( \| \hat{x}_{k+i} - r_{k+i} \|_Q^2 + \| u_{k+i-1} \|_R^2 \right)$$
 
-The controller solves the following Quadratic Programming (QP) problem at each time step $k$ over a horizon $H$
+Subject to physical actuator limits: $0 \leq u \leq 100$.
 
-$$\min_{\Delta u} \sum_{i=1}^{H} \| \hat{x}_{k+i} - T_{target, adj}^{k+i} \|_Q^2 + \| \Delta u_{k+i-1} \|_R^2 $$
+To account for steady-state offsets caused by system underactuation and external disturbances (like solar gain), the MPC includes a dynamic bias compensation mechanism that aggressively pushes the target trajectory against the persistent error.
 
-We solve for $$\Delta u$$, change of the control input, subject to **Slew Rate Limits:** $\Delta u_{min} \leq \Delta u \leq \Delta u_{max}$ to ensure smooth control actions.
+## Simulation Results & System Analysis
 
-### 4. Performance
+A key outcome of this project is demonstrating that an optimal controller (MPC) is ultimately bound by the physical constraints (plant dynamics) of the system. Rather than forcing perfect but physically impossible tracking, the simulation mathematically exposes several real-world limitations of greenhouse environments:
 
-The controller demonstrated effective setpoint tracking and smooth day-to-night transition (21°C/50% → 16°C/60%). Humidity converged to target with minimal overshoot. A residual steady-state temperature offset of approximately 2°C was observed, attributable to the absence of integral action in the MPC formulation (discussed in Future Work).
+1. Underactuation and State Coupling
+
+The expanded greenhouse model is underactuated. We model 4 physical states but only actuate 2 inputs.
+
+The Humidity Coupling: The system lacks a dedicated humidifier or vent. Steady-state row analysis of the $A$ matrix reveals that humidity is mathematically coupled to Temperature and Surface Moisture:
 
 
-<img width="1484" height="1181" alt="fig2_mpc" src="https://github.com/user-attachments/assets/03aff46c-8aa0-4334-bafd-96529a2add23" />
+$$Hum_{ss} = 0.5 \cdot Temp_{ss} + 0.25 \cdot Surf_{ss}$$
 
+Optimal Compromise: When the MPC is given conflicting targets (e.g., high humidity but low temperature), it performs an optimal mathematical compromise. The resulting steady-state offsets (Temperature settling at ~40°C while aiming for 22°C to support the humidity target) are not controller errors, but rather proof of the system's physical constraints.
 
+2. Dominant Eigenvalues and Physical Inertia
 
-**Future Work**: 
+The system exhibits heavily delayed responses in the deep soil layer due to percolation dynamics.
 
-Integral action (eliminate steady-state error). The most impactful improvement. Augmenting the MPC state vector with the cumulative output tracking error introduces effective integral action, eliminating the steady-state offset observed in temperature tracking. This is standard practice in industrial MPC implementations.
+Eigenvalue Analysis: By analyzing the eigenvalues of the augmented $7 \times 7$ $A$ matrix, the system's dominant pole is identified at $\lambda = 0.95$.
 
----
+First-Order Lag: Because water percolates downwards with no capillary feedback loop upward, the deep soil acts as an isolated first-order lag filter. The MPC correctly predicts this high inertia, proving that the deep soil cannot be rapidly saturated without severely flooding the surface layer.
+
+3. Steady-State Moisture Constraints
+
+The modeled percolation dynamics dictate a strict steady-state ratio between the surface and deep soil. By solving the discrete-time physics equation for the unforced deep soil layer:
+
+$$Deep_{k+1} = 0.1 \cdot Surf_k + 0.95 \cdot Deep_k$$
+
+We find that at a settled steady state, $Deep_{ss} = 2 \cdot Surf_{ss}$. The reference trajectories in the simulation were successfully updated to respect this natural moisture gradient (e.g., $Surf = 40, Deep = 80$), allowing the MPC to track them with zero steady-state soil error.
+
+## Future Roadmap
+
+This repository serves as a foundational framework for MIMO greenhouse control. Future expansions could take several directions:
+
+🧠 Advanced Control Strategies
+
+Integral Action: Formally augment the MPC state vector with the cumulative output tracking error to introduce true integral action, replacing the current simple bias compensation.
+
+Soft Constraints & Prioritization: Modify the $Q$ weight matrix to implement strict target prioritization (e.g., heavily prioritizing Temperature tracking over Humidity to prevent crop freezing, while safely allowing the MPC to ignore the resulting coupled humidity offset).
+
+Non-Linear MPC (NMPC): Transition the plant from LTI matrices to non-linear differential equations using solvers like CasADi (e.g., making evaporation rates a non-linear function of both temperature and humidity).
+
+🛠️ Plant & Hardware Upgrades
+
+Full Actuation Matrix: Expand the $B$ matrix to include the Heater, Pump, Vent, and an active Humidifier. This will fully decouple Temperature and Humidity, allowing the MPC to track all 4 references independently without steady-state compromise.
+
+Drainage Dynamics: Implement a variable deep-soil drainage coefficient to model active sub-surface drainage systems.
+
+📈 System Identification
+
+Data-Driven Matrices: Replace the hardcoded theoretical $A$ and $B$ matrices with matrices derived from real-world IoT sensor data using System Identification techniques (e.g., ARMAX models or SINDy).

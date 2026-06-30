@@ -1,178 +1,121 @@
-from plant import BasePlant
-from MPCoptimizer import MPCoptimizer
 import numpy as np
 import matplotlib.pyplot as plt
+from plant import BasePlant
 from kalman import KalmanFilter
+from mpcoptimizer import MPCoptimizer
 
-# helper functions
-def get_target_trajectory(t, hz):
+def get_meaningful_target(step):
     """
-    Step 0-50 is Day (21, 50), Step 51+ is Night (16, 60).
+    Returns [T_ref, H_ref, S_ref, D_ref]
     """
-    target_stack = []
-    
-    for i in range(hz):
-        future_t = t + i
-        
-        if future_t < 50:
-            # Day Target
-            target_i = np.array([[21], [50]])
-        else:
-            # Night Target
-            target_i = np.array([[16], [60]])
-            
-        target_stack.append(target_i)
-    return np.vstack(target_stack)
-
-def calculate_rmse(true_val, test_val):
-    return np.sqrt(np.mean((true_val - test_val)**2))
-
-#~~~~~~~~~~~~~~~~~~Initialization~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-hz = 25
+    # Day phase: Step 0 to 100
+    if 0 <= (step % 200) < 100:
+        return np.array([[22.0], [65.0], [40], [80]]) 
+    # Night phase: Step 100 to 200
+    else:
+        return np.array([[17.0], [80.0], [30], [60]])
+# --- 1. CONFIGURATION ---
+hz = 10
 time_steps = 150
-#target = np.array([[21], [50]]) 
+# Initial state (7 elements: [T, H, Surf, Deep, u_pump_delayed1, u_pump_delayed2, Layer1])
+initial_state = np.zeros(7) 
 
-x_est_trj = []
-u_trj = []
-ref_trj= []
-y_measurement = []
-x_true_trj = []
-solar_trj = []
-sun_est_trj = []
-
-# initialize the plant model
-# A: τ_T ≈ 5.5 min (0.97), τ_H ≈ 3.25 min (0.95), includes T→H coupling (-0.02)
-A = np.array([[0.97,  0.01],
-              [-0.02, 0.95]])
-# B: diagonal scaled to preserve DC gain ((I-A)^-1 B ≈ original); cross terms kept small
-B = np.array([[0.30, -0.01],
-              [-0.01,  0.25]])
-
-init_st = np.array([15,40])
-testsystem = BasePlant(init_st, A,B)
-
-# initialize the MPC 
-Q = np.array([[40, 0],
-              [0,  18]])
-R = np.array([[0.05, 0],[0, 0.03]])
-controller = MPCoptimizer(testsystem, R, Q, hz, u_min=[0, 0], u_max=[100, 100])
+# --- 2. INITIALIZATION (Assuming A_final, B_final, C_final are pre-loaded) ---
+# Replace these with your actual extracted matrices
+A_final = np.array([[ 0.9 ,  0.  ,  0.  ,  0.  ,  0.  ,  0.  ,  0.  ],
+ [ 0.1 ,  0.8 ,  0.05,  0.  ,  0.  ,  0.  ,  0.  ],
+ [-0.05, -0.02,  0.9 ,  0.  ,  0.  ,  0.6 ,  0.  ],
+ [ 0.  ,  0.  ,  0.  ,  0.95,  0.  ,  0.  ,  1.  ],
+ [ 0.  ,  0.  ,  0.  ,  0.  ,  0.  ,  0.  ,  0.  ],
+ [ 0.  ,  0.  ,  0.  ,  0.  ,  1.  ,  0.  ,  0.  ],
+ [ 0.  ,  0.  ,  0.1 ,  0.  ,  0.  ,  0.  ,  0.  ]])
+B_final = np.array([[0.5, 0. ],
+ [0. , 0. ],
+ [0. , 0. ],
+ [0. , 0. ],
+ [0. , 1. ],
+ [0. , 0. ],
+ [0. , 0. ]])
+C_final = np.array([[1., 0., 0., 0., 0., 0., 0.],
+ [0., 1., 0., 0., 0., 0., 0.],
+ [0., 0., 1., 0., 0., 0., 0.],
+ [0., 0., 0., 1., 0., 0., 0.]])
 
 
-std_devs = np.array([0.5, 1.0]) # std deviation of noise added to measurement
+plant = BasePlant(initial_state, A_final, B_final)
+kf = KalmanFilter(A_final, B_final, C_final, Q=np.eye(7)*0.01, R=np.eye(4)*0.1, initial_state=initial_state)
 
-# initialize Kalman filter
-# process nopise, uncertainty in the model
-Q_kf = np.array([[0.0025, 0], 
-                 [0, 0.01]])
+Q = np.diag([10000.0, 100.0, 10000.0, 1000.0])
+R = np.eye(2) * 0.1
+mpc = MPCoptimizer(A_final, B_final, C_final, R, Q, hz)
 
-# measurement noise
-R_kf = np.array([[1.5, 0], 
-                 [0, 1]])
+# --- 3. SIMULATION LOOP ---
+x_est_trj, u_trj, ref_trj = [], [], []
 
-C=np.eye(2)
-init_st_kf = np.append(init_st, 0.0)
-A_obs = np.block([[A, np.array([[1.0], [0.0]])], [0, 0, 1]])
-B_obs = np.vstack([B, np.zeros((1, B.shape[1]))])
-C_obs = np.column_stack([C, np.zeros((C.shape[0], 1))])
-Q_obs = np.block([[Q_kf, np.zeros((2, 1))],
-                  [np.zeros((1, 2)), 0.01]])
-kf_estimator = KalmanFilter(A_obs, B_obs, C_obs, Q=Q_obs, R=R_kf, initial_state=init_st_kf)
-
-#~~~~~~~~~~~~~~~~~~~~~ Main function ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 for i in range(time_steps):
-
-    target = get_target_trajectory(i, hz)
-    x_true = testsystem.x # the trueth
-    noise = np.random.normal(0, std_devs).reshape(-1,1)
-    y_sensor = x_true.reshape(-1,1) + noise # The noisy measurement
-    solar_impact = 0.1 * np.sin(np.pi * i / time_steps)
-
-    # Kalman, Predict based on last u then Update the estimation with noisy y
-    x_hat_full = kf_estimator.update(y_sensor)
-    x_est = x_hat_full[:2]   # [T, H] for the MPC
-    sun_est = x_hat_full[2]  # The estimated solar gain
-
-    # feed the estimation to MPC and compute the optimal control input
-    target_adj = target.copy().astype(float)
-    target_adj[::2] -= sun_est / (1 - A[0, 0])  # convert per-step gain to steady-state effect
-    delta_u = controller.solve(x_est,target_adj) 
-    testsystem.update(delta_u, solar_impact)
-
-    kf_estimator.predict(testsystem.u_prev)
+    # Get Targets (Adjusted for 4 states)
+    current_target = get_meaningful_target(i)
     
-    x_true_trj.append(x_true.flatten())
-    x_est_trj.append(x_est)
-    u_trj.append(testsystem.u_prev.flatten()) 
-    ref_trj.append(target[0:2].flatten())
-    y_measurement.append(y_sensor)
-    solar_trj.append(solar_impact)
-    sun_est_trj.append(sun_est)
+    # If your MPC uses a horizon (hz), you need a stack of targets for i to i+hz
+    target_stack = np.zeros((4 * hz, 1))
+    for h in range(hz):
+        target_stack[h*4 : (h+1)*4] = get_meaningful_target(i + h)
+    
+    # Measurement
+    y_measured = (C_final @ plant.x) + np.random.normal(0, 0.05, (4, 1))
+    
+    # Filter
+    kf.predict(plant.u_prev)
+    kf.update(y_measured)
+    
+    # Optimize
+    u_sequence = mpc.solve(kf.x_hat, target_stack)
+    
+    # Update Plant
+    plant.update(u_sequence[0:2], solar_gain=0.1)
+    
+    # Store
+    x_est_trj.append(kf.x_hat.flatten())
+    u_trj.append(plant.u_prev.flatten())
+    ref_trj.append(current_target.flatten())
 
-x_est_trajectory = np.array(x_est_trj)
-x_true_trajectory = np.array(x_true_trj)
-u_trajectory = np.array(u_trj)
-ref_trajectory = np.array(ref_trj)
-y_ns_measurement = np.array(y_measurement)
-solar_record = np.array(solar_trj)
-sun_est_record = np.array(sun_est_trj)
+    if i % 10 == 0:
+        print(f"Step {i} | Surf Est: {kf.x_hat[2,0]:.2f} | Target: {current_target[2,0]:.2f} | Pump Cmd: {plant.u_prev[1,0]:.2f}")
 
-# calculate the RMS error
-rmse_noisy_temp = calculate_rmse(x_true_trajectory[:, 0], y_ns_measurement[:, 0])
-rmse_kalman_temp = calculate_rmse(x_true_trajectory[:, 0], x_est_trajectory[:, 0])
+# --- 4. PLOTTING ---
+x_est_trj = np.array(x_est_trj)
+u_trj = np.array(u_trj)
+ref_trj = np.array(ref_trj)
 
-# ~~~~~~~~~~~~~~~~~~~~~plot the graph~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-time = np.arange(len(x_true_trj))
+plt.figure(figsize=(14, 10))
 
-# FIGURE 1: KALMAN FILTER PERFORMANCE
-plt.figure(1)
+# State 0: Temperature
+plt.subplot(2, 2, 1)
+plt.plot(ref_trj[:, 0], 'k--', label='Ref (Temp)')
+plt.plot(x_est_trj[:, 0], 'b-', label='Est (Temp)')
+plt.title("Temperature")
+plt.legend(); plt.grid(True)
 
-# Temperature Subplot
-plt.subplot(2, 1, 1)
-plt.scatter(time, y_ns_measurement[:, 0], color='cyan', s=5, alpha=0.3, label='Raw Sensor (Noisy)')
-plt.plot(time, x_true_trajectory[:, 0], 'k-', linewidth=1.5, label='True State (Physics)')
-plt.plot(time, x_est_trajectory[:, 0], 'r-', linewidth=2, label='Kalman Estimate')
-plt.title("Kalman Filter: Temperature Estimation", fontweight='bold')
-plt.ylabel("Temp (°C)")
-plt.legend(loc='upper right')
-plt.grid(True, alpha=0.2)
+# State 1: Humidity
+plt.subplot(2, 2, 2)
+plt.plot(ref_trj[:, 1], 'k--', label='Ref (Hum)')
+plt.plot(x_est_trj[:, 1], 'c-', label='Est (Hum)')
+plt.title("Humidity")
+plt.legend(); plt.grid(True)
 
-# Humidity Subplot
-plt.subplot(2, 1, 2)
-plt.scatter(time, y_ns_measurement[:, 1], color='magenta', s=5, alpha=0.3, label='Raw Sensor (Noisy)')
-plt.plot(time, x_true_trajectory[:, 1], 'k-', linewidth=1.5, label='True State (Physics)')
-plt.plot(time, x_est_trajectory[:, 1], 'b-', linewidth=2, label='Kalman Estimate')
-plt.title("Kalman Filter: Humidity Estimation", fontweight='bold')
-plt.ylabel("Humidity (%)")
-plt.xlabel("Time Steps")
-plt.legend(loc='upper right')
-plt.grid(True, alpha=0.2)
+# State 2: Surface Moisture
+plt.subplot(2, 2, 3)
+plt.plot(ref_trj[:, 2], 'k--', label='Ref (Surf)')
+plt.plot(x_est_trj[:, 2], 'g-', label='Est (Surf)')
+plt.title("Surface Moisture")
+plt.legend(); plt.grid(True)
 
-plt.tight_layout()
-plt.savefig("figures/fig1_kalman.png", dpi=150, bbox_inches='tight')
-
-# FIGURE 2: MPC PERFORMANCE
-plt.figure(2)
-fig, (ax_track, ax_u) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
-
-# Tracking Subplot
-ax_track.plot(time, ref_trajectory[:, 0], 'k--', alpha=0.7, label='Temp Target')
-ax_track.plot(time, x_est_trajectory[:, 0], 'r-', linewidth=2, label='Temp (MPC Input)')
-ax_track.plot(time, ref_trajectory[:, 1], 'k:', alpha=0.7, label='Hum Target')
-ax_track.plot(time, x_est_trajectory[:, 1], 'b-', linewidth=2, label='Hum (MPC Input)')
-ax_track.set_title("MPC: Reference Tracking", fontweight='bold')
-ax_track.set_ylabel("Climate States")
-ax_track.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-ax_track.grid(True, alpha=0.2)
-
-# Actuator Subplot
-ax_u.step(time, u_trajectory[:, 0], color='darkorange', where='post', label='Heater')
-ax_u.step(time, u_trajectory[:, 1], color='teal', where='post', label='Vent')
-ax_u.set_title("MPC: Control Inputs (Actuators)", fontweight='bold')
-ax_u.set_ylabel("Power/Opening (%)")
-ax_u.set_xlabel("Time Steps")
-ax_u.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-ax_u.grid(True, alpha=0.2)
+# State 3: Deep Moisture
+plt.subplot(2, 2, 4)
+plt.plot(ref_trj[:, 3], 'k--', label='Ref (Deep)')
+plt.plot(x_est_trj[:, 3], 'r-', label='Est (Deep)')
+plt.title("Deep Moisture")
+plt.legend(); plt.grid(True)
 
 plt.tight_layout()
-plt.savefig("figures/fig2_mpc.png", dpi=150, bbox_inches='tight')
 plt.show()
