@@ -28,7 +28,7 @@ States ($x_{phys}$): $[T, H, M_{surf}, M_{deep}]^T$ (Temperature, Humidity, Surf
 Inputs ($u$): $[P_{heat}, P_{pump}]^T$ (Heater Power, Water Pump)
 
 Modeling Delays via State Augmentation:
-In reality, actuators do not affect the environment instantly. To model a 2-step delay for the water pump and a 1-step percolation delay between the surface and deep soil, the state vector is expanded to include 3 hidden "memory" states ($x_{aug} \in \mathbb{R}^7$).
+In reality, actuators do not affect the environment instantly. To model a 2-step delay for the water pump and a 1-step percolation delay between the surface and deep soil, the state vector is expanded to include 3 hidden "memory" states ($x_{aug} \in \mathbb{R}^3 = [u_{k-1}, u_{k-2}, L_k]^T$).
 
 $$x(k+1) = A_{final}x(k) + B_{final}u(k) + d(k)$$
 
@@ -94,11 +94,13 @@ Future expansions could take several directions:
 
 🧠 Advanced Control Strategies
 
-Integral Action: Formally augment the MPC state vector with the cumulative output tracking error to introduce true integral action, replacing the current simple bias compensation.
+In its initial implementation, the system dynamics were governed strictly by linear state-space equations. Utilizing an Unscented Kalman Filter (UKF) on a purely linear system underutilizes its mathematical capabilities, as a standard Linear Kalman Filter would yield identical results with less computational overhead.
 
-Soft Constraints & Prioritization: Modify the $Q$ weight matrix to implement strict target prioritization (e.g., heavily prioritizing Temperature tracking over Humidity to prevent crop freezing, while safely allowing the MPC to ignore the resulting coupled humidity offset).
+To better capture the real-world behavior of a greenhouse—where plant dynamics change continuously across different crop growth phases—we could introduce non-linearity via **Joint State and Parameter Estimation**.
 
-Non-Linear MPC (NMPC): Transition the plant from LTI matrices to non-linear differential equations using solvers like CasADi (e.g., making evaporation rates a non-linear function of both temperature and humidity).
+#### How it Works:
+1. **State Vector Expansion:** The UKF state vector is augmented to include the time-varying elements of the system matrices.
+2. **Online Parameter Identification:** By modeling these matrix parameters as a random walk within the non-linear transition framework, the UKF recursively identifies the shifting plant and environmental dynamics on the fly.
 
 🛠️ Plant & Hardware Upgrades
 
