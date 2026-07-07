@@ -58,6 +58,9 @@ To account for steady-state offsets caused by system underactuation and external
 
 A key outcome of this project is demonstrating that an optimal controller (MPC) is ultimately bound by the physical constraints (plant dynamics) of the system. Rather than forcing perfect but physically impossible tracking, the simulation mathematically exposes several real-world limitations of greenhouse environments:
 
+<img width="2085" height="1481" alt="fig_THSD" src="https://github.com/user-attachments/assets/7e28741e-6d9b-4a9a-b109-3a262fbfc2da" />
+
+
 1. Underactuation and State Coupling
 
 The expanded greenhouse model is underactuated. We model 4 physical states but only actuate 2 inputs.
@@ -87,7 +90,7 @@ We find that at a settled steady state, $Deep_{ss} = 2 \cdot Surf_{ss}$. The ref
 
 ## Future Roadmap
 
-This repository serves as a foundational framework for MIMO greenhouse control. Future expansions could take several directions:
+Future expansions could take several directions:
 
 🧠 Advanced Control Strategies
 
