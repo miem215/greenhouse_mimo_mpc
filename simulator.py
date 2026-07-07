@@ -45,7 +45,7 @@ C_final = np.array([[1., 0., 0., 0., 0., 0., 0.],
 plant = BasePlant(initial_state, A_final, B_final)
 kf = KalmanFilter(A_final, B_final, C_final, Q=np.eye(7)*0.01, R=np.eye(4)*0.1, initial_state=initial_state)
 
-Q = np.diag([10000.0, 100.0, 10000.0, 1000.0])
+Q = np.diag([10000.0, 10.0, 100000.0, 1000.0])
 R = np.eye(2) * 0.1
 mpc = MPCoptimizer(A_final, B_final, C_final, R, Q, hz)
 
@@ -118,4 +118,5 @@ plt.title("Deep Moisture")
 plt.legend(); plt.grid(True)
 
 plt.tight_layout()
+plt.savefig("figures/fig_THSD.png", dpi=150, bbox_inches='tight')
 plt.show()
